@@ -1,0 +1,91 @@
+use serde::Serialize;
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolAvailability {
+    pub exists: bool,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupStatus {
+    pub gpu: ToolAvailability,
+    pub cpu: ToolAvailability,
+}
+
+pub fn project_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map_or_else(|| PathBuf::from("."), |path| path.to_path_buf())
+}
+
+fn candidate_tool_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    if let Ok(explicit) = std::env::var("PASUS_MINER_TOOLS_DIR") {
+        roots.push(PathBuf::from(explicit));
+    }
+
+    roots.push(project_root().join("tools"));
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        roots.push(current_dir.join("tools"));
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            roots.push(exe_dir.join("tools"));
+            if let Some(parent) = exe_dir.parent() {
+                roots.push(parent.join("tools"));
+            }
+        }
+    }
+
+    let mut unique = Vec::new();
+    for root in roots {
+        if !unique.iter().any(|existing: &PathBuf| existing == &root) {
+            unique.push(root);
+        }
+    }
+
+    unique
+}
+
+fn resolve_tool_path(relative_path: &[&str]) -> PathBuf {
+    for root in candidate_tool_roots() {
+        let candidate = relative_path.iter().fold(root.clone(), |path, segment| path.join(segment));
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+
+    relative_path
+        .iter()
+        .fold(project_root().join("tools"), |path, segment| path.join(segment))
+}
+
+pub fn gpu_miner_path() -> PathBuf {
+    resolve_tool_path(&["gpu", "bzminer.exe"])
+}
+
+pub fn cpu_miner_path() -> PathBuf {
+    resolve_tool_path(&["cpu", "xmrig.exe"])
+}
+
+pub fn detect_setup() -> SetupStatus {
+    let gpu_path = gpu_miner_path();
+    let cpu_path = cpu_miner_path();
+
+    SetupStatus {
+        gpu: ToolAvailability {
+            exists: gpu_path.exists(),
+            path: gpu_path.to_string_lossy().into_owned(),
+        },
+        cpu: ToolAvailability {
+            exists: cpu_path.exists(),
+            path: cpu_path.to_string_lossy().into_owned(),
+        },
+    }
+}

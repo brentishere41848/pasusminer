@@ -1,0 +1,21 @@
+{
+  "wallet": "YOUR_WALLET_ADDRESS",
+  "worker": "worker-01",
+  "payoutTicker": "LTC",
+  "gpuEnabled": true,
+  "cpuEnabled": false,
+  "acceptedRiskWarning": false,
+  "autoStartOnLaunch": false,
+  "gpuPool": {
+    "host": "kp.unmineable.com",
+    "port": 3333
+  },
+  "cpuPool": {
+    "host": "pool.supportxmr.com",
+    "port": 3333,
+    "user": "",
+    "password": "x",
+    "algo": "rx/0"
+  }
+}
+
