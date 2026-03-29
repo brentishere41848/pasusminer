@@ -1,5 +1,9 @@
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use tauri::{AppHandle, Manager};
+
+static BUNDLED_TOOLS_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +23,13 @@ pub fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map_or_else(|| PathBuf::from("."), |path| path.to_path_buf())
+}
+
+pub fn configure_bundled_tools_dir(app: &AppHandle) {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled_dir = resource_dir.join("tools");
+        let _ = BUNDLED_TOOLS_DIR.set(bundled_dir);
+    }
 }
 
 fn gpu_miner_file_name() -> &'static str {
@@ -42,6 +53,10 @@ fn candidate_tool_roots() -> Vec<PathBuf> {
 
     if let Ok(explicit) = std::env::var("PASUS_MINER_TOOLS_DIR") {
         roots.push(PathBuf::from(explicit));
+    }
+
+    if let Some(bundled_dir) = BUNDLED_TOOLS_DIR.get() {
+        roots.push(bundled_dir.clone());
     }
 
     roots.push(project_root().join("tools"));

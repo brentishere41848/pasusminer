@@ -10,9 +10,14 @@ use commands::{
     start_cpu_miner, start_cpu_miner_test, start_gpu_miner, stop_cpu_miner, stop_gpu_miner,
 };
 use miner_manager::MinerManager;
+use tools::configure_bundled_tools_dir;
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            configure_bundled_tools_dir(&app.handle());
+            Ok(())
+        })
         .manage(MinerManager::new())
         .invoke_handler(tauri::generate_handler![
             load_runtime_state,

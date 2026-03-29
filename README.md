@@ -40,6 +40,8 @@ Pasus Miner does not bundle miners. You must place the correct binary for the cu
 
 The GPU miner is required for GPU mining. The CPU miner is optional.
 
+When those binaries are present in the repository at build time, the desktop installers bundle the `tools/` directory into the packaged app automatically. The backend now checks the packaged Tauri resource directory first, so installed builds can launch bundled miners without asking the user to copy them manually.
+
 ## Local Development
 
 Requirements by platform:
