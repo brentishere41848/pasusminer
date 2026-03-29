@@ -41,6 +41,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tauriScript: npm run tauri:build
           tagName: ${{ github.ref_name }}
           releaseName: "Pasus Miner ${{ github.ref_name }}"
           releaseBody: "Desktop installers and bundles for Windows, macOS, and Linux."
