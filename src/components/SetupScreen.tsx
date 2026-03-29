@@ -11,8 +11,8 @@ export function SetupScreen({ setup }: SetupScreenProps) {
         <p className="eyebrow">Setup Required</p>
         <h1>Pasus Miner</h1>
         <p className="setup-copy">
-          This app does not bundle any miner. Place the external executables in the
-          folders below, then restart the app.
+          This app does not bundle any miner. Place the external miner binaries in the
+          folders below for your current platform, then restart the app.
         </p>
 
         <div className="setup-grid">
@@ -20,14 +20,14 @@ export function SetupScreen({ setup }: SetupScreenProps) {
             <h2>GPU Miner</h2>
             <p>BzMiner is required for KawPow GPU mining.</p>
             <code>{setup.gpu.path}</code>
-            <strong>{setup.gpu.exists ? "Detected" : "Missing bzminer.exe"}</strong>
+            <strong>{setup.gpu.exists ? "Detected" : "Missing BzMiner binary"}</strong>
           </article>
 
           <article className={`tool-card ${setup.cpu.exists ? "ready" : "missing"}`}>
             <h2>CPU Miner</h2>
             <p>XMRig is optional and only needed for CPU mining.</p>
             <code>{setup.cpu.path}</code>
-            <strong>{setup.cpu.exists ? "Detected" : "Missing xmrig.exe"}</strong>
+            <strong>{setup.cpu.exists ? "Detected" : "Missing XMRig binary"}</strong>
           </article>
         </div>
 
@@ -35,10 +35,10 @@ export function SetupScreen({ setup }: SetupScreenProps) {
           <p>Expected folders</p>
           <ul>
             <li>
-              <code>tools/gpu/bzminer.exe</code>
+              <code>tools/gpu/bzminer(.exe)</code>
             </li>
             <li>
-              <code>tools/cpu/xmrig.exe</code>
+              <code>tools/cpu/xmrig(.exe)</code>
             </li>
           </ul>
         </div>

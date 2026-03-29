@@ -21,6 +21,22 @@ pub fn project_root() -> PathBuf {
         .map_or_else(|| PathBuf::from("."), |path| path.to_path_buf())
 }
 
+fn gpu_miner_file_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "bzminer.exe"
+    } else {
+        "bzminer"
+    }
+}
+
+fn cpu_miner_file_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "xmrig.exe"
+    } else {
+        "xmrig"
+    }
+}
+
 fn candidate_tool_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
@@ -67,11 +83,11 @@ fn resolve_tool_path(relative_path: &[&str]) -> PathBuf {
 }
 
 pub fn gpu_miner_path() -> PathBuf {
-    resolve_tool_path(&["gpu", "bzminer.exe"])
+    resolve_tool_path(&["gpu", gpu_miner_file_name()])
 }
 
 pub fn cpu_miner_path() -> PathBuf {
-    resolve_tool_path(&["cpu", "xmrig.exe"])
+    resolve_tool_path(&["cpu", cpu_miner_file_name()])
 }
 
 pub fn detect_setup() -> SetupStatus {

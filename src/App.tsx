@@ -269,7 +269,7 @@ function App() {
       <section className="hero panel">
         <div>
           <p className="eyebrow">Pasus Miner</p>
-          <h1>Simple KawPow mining launcher for Windows</h1>
+          <h1>Simple KawPow mining launcher for desktop</h1>
           <p className="hero-copy">
             Native Tauri desktop app. Backend process ownership stays in Rust and only the
             UI sends explicit start or stop commands.

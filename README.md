@@ -1,113 +1,126 @@
 # Pasus Miner
 
-Pasus Miner is a real Windows desktop application built with Tauri + React + TypeScript.
+Pasus Miner is a Tauri desktop application with a React + TypeScript frontend and a Rust backend.
 
-It is not a browser-only website, not a plain React SPA, and not a frontend-only mockup. The React UI is embedded inside a native Tauri desktop window, while the Rust backend handles local files, process management, executable detection, and stdout/stderr streaming.
+It is not a browser-only website and not a plain SPA. The native Tauri shell owns process management, local file access, and packaging for desktop platforms.
 
-Pasus Miner is a Windows desktop launcher for external miners. It does not implement mining itself. It provides:
+## What It Does
 
-- launching `bzminer.exe` for KawPow GPU mining
-- optionally launching `xmrig.exe` for CPU mining
-- streaming live logs to the UI
-- showing miner status and parseable hashrate
-- keeping miner process ownership in the Tauri backend instead of React component lifecycle
-- showing the exact miner command line in the desktop UI for debugging
-- saving settings locally in JSON
+- launches an external GPU miner for KawPow mining
+- optionally launches an external CPU miner
+- streams live miner logs into the desktop UI
+- keeps miner process lifecycle in the Tauri backend
+- stores local config in the app config directory
+- packages as a real desktop app for Windows, macOS, and Linux
 
-## Requirements
+## Platform Support
 
-- Windows 10 or Windows 11
-- Node.js 20+ and npm
-- Rust toolchain installed for Tauri builds
-- Microsoft Visual Studio C++ Build Tools
+The repository is configured to package on:
 
-## Miner Executables
+- Windows
+- macOS
+- Linux
 
-Place the external miner binaries in these folders:
+Packaging is native-per-platform. In practice that means:
 
-- `tools/gpu/bzminer.exe`
-- `tools/cpu/xmrig.exe`
+- Windows artifacts are built on Windows runners
+- macOS artifacts are built on macOS runners
+- Linux artifacts are built on Linux runners
 
-The CPU miner is optional. The GPU miner is required for KawPow mining.
+This repo includes a GitHub Actions workflow that builds all three.
 
-## Install Steps
+## Miner Binaries
 
-1. Install Node.js and npm.
-2. Install Rust from `https://rustup.rs/`.
-3. Install the Visual Studio C++ build tools required by Tauri.
-4. Open a terminal in the project root.
-5. Run `npm install`.
+Pasus Miner does not bundle miners. You must place the correct binary for the current platform in these folders:
 
-## Development Mode
+- `tools/gpu/bzminer.exe` on Windows
+- `tools/gpu/bzminer` on macOS/Linux
+- `tools/cpu/xmrig.exe` on Windows
+- `tools/cpu/xmrig` on macOS/Linux
 
-1. Ensure `bzminer.exe` is placed in `tools/gpu`.
-2. Optionally place `xmrig.exe` in `tools/cpu`.
+The GPU miner is required for GPU mining. The CPU miner is optional.
+
+## Local Development
+
+Requirements by platform:
+
+- Node.js 20+
+- npm
+- Rust toolchain
+- Tauri native prerequisites for your platform
+
+Additional native prerequisites:
+
+- Windows: Microsoft Visual Studio C++ Build Tools
+- macOS: Xcode Command Line Tools
+- Linux: WebKitGTK and the usual Tauri system libraries
+
+Install and run:
+
+1. Run `npm install`.
+2. Place the correct miner binaries in `tools/gpu` and optionally `tools/cpu`.
 3. Run `npm run tauri:dev`.
 
-The app stores its config in the Tauri app config directory as `config.json`.
+The app stores its config as `config.json` in the Tauri app config directory.
 
-## Build For Windows
+## Build Commands
 
-1. Run `npm run build`.
-2. Run `npm run tauri:build`.
+Frontend build:
 
-Tauri will generate a packaged Windows desktop build under `src-tauri/target/release/bundle/`.
+- `npm run build`
 
-Expected Windows output includes an installer and packaged desktop application artifacts, typically under:
+Desktop package build on the current OS:
 
-- `src-tauri/target/release/bundle/nsis/`
-- `src-tauri/target/release/`
+- `npm run tauri:build`
 
-## Default GPU Pool
+Convenience aliases:
 
-- Host: `kp.unmineable.com`
-- Port: `3333`
+- `npm run tauri:build:windows`
+- `npm run tauri:build:macos`
+- `npm run tauri:build:linux`
 
-GPU payout wallet strings are built like this:
+Tauri packages for the current platform under `src-tauri/target/release/bundle/`.
 
-- `ltc:{wallet}.{worker}`
+Typical outputs:
 
-Example:
+- Windows: `.exe` installer via NSIS
+- macOS: `.app` bundle and `.dmg`
+- Linux: `.AppImage`, `.deb`, and other supported Linux bundles
 
-- `ltc:LMYWalletAddress.worker-01`
+## GitHub Actions
 
-## CPU Mining
+The workflow at `.github/workflows/build-release.yml` builds artifacts on:
 
-CPU mining is optional and uses a separate config block and separate process. XMRig is only launched when the CPU toggle is enabled.
+- `windows-latest`
+- `macos-latest`
+- `ubuntu-22.04`
 
-The CPU miner lifecycle is backend-owned:
+It uploads packaged artifacts for each platform so releases do not depend on one local machine.
 
-- the frontend only sends explicit start and stop commands
-- React mount or rerender does not start or stop XMRig
-- duplicate starts return an already-running state instead of spawning another process
-- duplicate stops are ignored safely
-- IPv4 is forced by default with `--dns-ipv6=0`
+The workflow at `.github/workflows/publish-release.yml` publishes a draft GitHub Release when you push a tag like `v0.1.0`. That release collects the native installers and bundles built on Windows, macOS, and Linux runners.
+
+## Runtime Notes
+
+- GPU payout strings are built as `ltc:{wallet}.{worker}`
+- default GPU pool is `kp.unmineable.com:3333`
+- CPU mining is optional and uses a separate process/config block
+- duplicate backend starts are handled safely
+- duplicate backend stops are ignored safely
 
 ## Safety Notes
 
-- Mining can consume substantial power.
-- Mining can increase heat and long-duration hardware load.
-- The app requires the user to accept a warning before the first start.
-- Auto-start mining is disabled by default. The optional setting only starts mining when the app itself launches. It does not create Windows startup tasks.
-
-## Launch And Test
-
-1. Place `bzminer.exe` into `tools/gpu`.
-2. Optionally place `xmrig.exe` into `tools/cpu`.
-3. Run `npm install`.
-4. Run `npm run tauri:dev`.
-5. In the app, enter a wallet address and worker name.
-6. Leave the default GPU pool as `kp.unmineable.com:3333` unless you want a different KawPow pool.
-7. Accept the resource usage warning checkbox.
-8. Click `Start`.
-9. Verify that the GPU log panel shows live BzMiner output.
-10. If CPU mining is enabled and `xmrig.exe` exists, verify the CPU log panel also streams output.
-11. Click `Stop` and confirm both processes terminate cleanly.
+- mining can consume substantial power
+- mining can increase hardware temperature and long-term load
+- the app requires warning acceptance before first start
+- auto-start only affects app startup and does not create OS startup tasks
 
 ## Project Structure
 
 ```text
 PasusMiner/
+  .github/
+    workflows/
+      build-release.yml
   src/
     components/
     lib/
@@ -127,19 +140,19 @@ PasusMiner/
     tauri.conf.json
   tools/
     gpu/
-      bzminer.exe
+      bzminer(.exe)
     cpu/
-      xmrig.exe
+      xmrig(.exe)
   config.sample.json
   README.md
 ```
 
 ## Desktop Verification
 
-This project is structured as a Tauri desktop app:
+This project remains a real desktop application:
 
-- `src-tauri/main.rs` is the native Rust desktop entrypoint.
-- `src-tauri/tauri.conf.json` defines the native desktop window and Windows bundling target.
-- `src-tauri/src/miner_manager.rs` launches and manages external Windows executables.
-- `src-tauri/src/config.rs` reads and writes local config files.
-- `src/` contains only the embedded UI layer rendered inside the native desktop window.
+- [src-tauri/main.rs](C:/Users/Brent/PasusMiner/src-tauri/src/main.rs) is the native desktop entrypoint
+- [src-tauri/tauri.conf.json](C:/Users/Brent/PasusMiner/src-tauri/tauri.conf.json) defines native bundling
+- [src-tauri/src/miner_manager.rs](C:/Users/Brent/PasusMiner/src-tauri/src/miner_manager.rs) launches external miner processes
+- [src-tauri/src/tools.rs](C:/Users/Brent/PasusMiner/src-tauri/src/tools.rs) resolves platform-specific miner binaries
+- [src/App.tsx](C:/Users/Brent/PasusMiner/src/App.tsx) is only the embedded UI layer
