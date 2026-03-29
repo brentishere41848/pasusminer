@@ -11,20 +11,18 @@ It is not a browser-only website and not a plain SPA. The native Tauri shell own
 - streams live miner logs into the desktop UI
 - keeps miner process lifecycle in the Tauri backend
 - stores local config in the app config directory
-- packages as a real desktop app for Windows, macOS, and Linux
+- packages as a real desktop app for Windows and Linux
 
 ## Platform Support
 
 The repository is configured to package on:
 
 - Windows
-- macOS
 - Linux
 
 Packaging is native-per-platform. In practice that means:
 
 - Windows artifacts are built on Windows runners
-- macOS artifacts are built on macOS runners
 - Linux artifacts are built on Linux runners
 
 This repo includes a GitHub Actions workflow that builds all three.
@@ -34,9 +32,9 @@ This repo includes a GitHub Actions workflow that builds all three.
 Pasus Miner does not bundle miners. You must place the correct binary for the current platform in these folders:
 
 - `tools/gpu/bzminer.exe` on Windows
-- `tools/gpu/bzminer` on macOS/Linux
+- `tools/gpu/bzminer` on Linux
 - `tools/cpu/xmrig.exe` on Windows
-- `tools/cpu/xmrig` on macOS/Linux
+- `tools/cpu/xmrig` on Linux
 
 The GPU miner is required for GPU mining. The CPU miner is optional.
 
@@ -54,7 +52,6 @@ Requirements by platform:
 Additional native prerequisites:
 
 - Windows: Microsoft Visual Studio C++ Build Tools
-- macOS: Xcode Command Line Tools
 - Linux: WebKitGTK and the usual Tauri system libraries
 
 Install and run:
@@ -78,7 +75,6 @@ Desktop package build on the current OS:
 Convenience aliases:
 
 - `npm run tauri:build:windows`
-- `npm run tauri:build:macos`
 - `npm run tauri:build:linux`
 
 Tauri packages for the current platform under `src-tauri/target/release/bundle/`.
@@ -86,7 +82,6 @@ Tauri packages for the current platform under `src-tauri/target/release/bundle/`
 Typical outputs:
 
 - Windows: `.exe` installer via NSIS
-- macOS: `.app` bundle and `.dmg`
 - Linux: `.AppImage`, `.deb`, and other supported Linux bundles
 
 ## GitHub Actions
@@ -94,12 +89,11 @@ Typical outputs:
 The workflow at `.github/workflows/build-release.yml` builds artifacts on:
 
 - `windows-latest`
-- `macos-latest`
 - `ubuntu-22.04`
 
 It uploads packaged artifacts for each platform so releases do not depend on one local machine.
 
-The workflow at `.github/workflows/publish-release.yml` publishes a draft GitHub Release when you push a tag like `v0.1.0`. That release collects the native installers and bundles built on Windows, macOS, and Linux runners.
+The workflow at `.github/workflows/publish-release.yml` publishes a draft GitHub Release when you push a tag like `v0.1.0`. That release collects the native installers and bundles built on Windows and Linux runners.
 
 ## Runtime Notes
 

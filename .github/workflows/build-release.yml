@@ -18,9 +18,6 @@ jobs:
           - name: Windows
             runner: windows-latest
             script: npm run tauri:build:windows
-          - name: macOS
-            runner: macos-latest
-            script: npm run tauri:build:macos
           - name: Linux
             runner: ubuntu-22.04
             script: npm run tauri:build:linux
