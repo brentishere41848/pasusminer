@@ -62,10 +62,9 @@ npm run tauri:build
 $bundleRoot = "src-tauri\target\release\bundle"
 $nsisInstaller = Get-ChildItem "$bundleRoot\nsis\*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $msiInstaller = Get-ChildItem "$bundleRoot\msi\*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$nsisSignature = Get-ChildItem "$bundleRoot\nsis\*.exe.sig" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-if (-not $nsisInstaller -or -not $msiInstaller -or -not $nsisSignature) {
-  throw "Expected signed NSIS/MSI artifacts were not generated."
+if (-not $nsisInstaller -or -not $msiInstaller) {
+  throw "Expected NSIS/MSI artifacts were not generated."
 }
 
 New-Item -ItemType Directory -Force "build" | Out-Null
@@ -79,8 +78,15 @@ $msiBuildPath = Join-Path "build" $msiAssetName
 Copy-Item $nsisInstaller.FullName $exeBuildPath -Force
 Copy-Item $msiInstaller.FullName $msiBuildPath -Force
 
+$tauriCli = Join-Path $PSScriptRoot "..\node_modules\.bin\tauri.cmd"
+& $tauriCli signer sign -f $signingKeyPath --password= $exeBuildPath | Out-Null
+$exeSignaturePath = "$exeBuildPath.sig"
+if (-not (Test-Path $exeSignaturePath)) {
+  throw "Failed to create updater signature for $exeBuildPath"
+}
+
 $releaseBaseUrl = "https://github.com/$Repo/releases/download/$tag"
-$signature = (Get-Content $nsisSignature.FullName -Raw).Trim()
+$signature = (Get-Content $exeSignaturePath -Raw).Trim()
 $latestJson = [ordered]@{
   version = $Version
   notes = "Pasus Miner $Version"
