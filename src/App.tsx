@@ -59,6 +59,14 @@ function App() {
   const initialized = useRef(false);
   const pendingUpdateRef = useRef<Update | null>(null);
 
+  async function closePendingUpdate(update: Update | null) {
+    if (!update) {
+      return;
+    }
+
+    await update.close().catch(() => undefined);
+  }
+
   const toolsReady = runtimeState.setup.gpu.exists;
   const selectedCoin = sanitizeCoin(config.payoutTicker);
   const payoutPreview = useMemo(
@@ -206,14 +214,21 @@ function App() {
 
     async function checkForUpdates() {
       setUpdatePhase("checking");
+      setUpdateMessage("Checking for updates...");
+      setUpdateVersion("");
+      setUpdateNotes("");
+      setUpdateDownloadedBytes(0);
+      setUpdateTotalBytes(0);
+      setUpdateProgress(0);
 
       try {
         const update = await check();
         if (cancelled) {
-          await update?.close().catch(() => undefined);
+          await closePendingUpdate(update);
           return;
         }
 
+        await closePendingUpdate(pendingUpdateRef.current);
         pendingUpdateRef.current = update;
         if (update) {
           setUpdateVersion(update.version);
@@ -221,11 +236,15 @@ function App() {
           setUpdateMessage(`Update ${update.version} is ready.`);
           setUpdatePhase("available");
         } else {
+          pendingUpdateRef.current = null;
           setUpdateMessage("Pasus Miner is current.");
           setUpdatePhase("idle");
         }
-      } catch {
-        setUpdatePhase("idle");
+      } catch (error) {
+        await closePendingUpdate(pendingUpdateRef.current);
+        pendingUpdateRef.current = null;
+        setUpdatePhase("error");
+        setUpdateMessage(error instanceof Error ? error.message : "Update check failed.");
       }
     }
 
@@ -235,9 +254,7 @@ function App() {
       cancelled = true;
       const update = pendingUpdateRef.current;
       pendingUpdateRef.current = null;
-      if (update) {
-        void update.close().catch(() => undefined);
-      }
+      void closePendingUpdate(update);
     };
   }, []);
 
@@ -432,6 +449,7 @@ function App() {
 
       setUpdatePhase("installed");
       setUpdateMessage("Update installed. Windows will close the app to complete the upgrade.");
+      await closePendingUpdate(update);
       pendingUpdateRef.current = null;
     } catch (error) {
       setUpdatePhase("error");
