@@ -53,7 +53,7 @@ export function applyCoinPreset(config: AppConfig, coinValue: string): AppConfig
     wallet: DEFAULT_WALLETS[coin],
     payoutTicker: coin,
     gpuEnabled: config.gpuEnabled,
-    cpuEnabled: coin === "RVN" ? false : config.cpuEnabled,
+    cpuEnabled: config.cpuEnabled,
     gpuPool: {
       host: "kp.unmineable.com",
       port: 3333

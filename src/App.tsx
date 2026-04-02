@@ -654,7 +654,7 @@ function App() {
                       : selectedCoin === "BTC"
                         ? "GPU and CPU mine their normal workloads while unMineable pays out to your Bitcoin address."
                       : selectedCoin === "RVN"
-                          ? "RVN uses the KawPow GPU path on `kp.unmineable.com:3333` and this preset currently keeps CPU mining off."
+                          ? "RVN uses KawPow on the GPU lane and RandomX on the CPU lane while both pay out to your Ravencoin address."
                       : "GPU and CPU remain available while payout formatting and pool hosts stay automatic for Monero."}
                   </p>
                 </article>
@@ -662,8 +662,8 @@ function App() {
                 {selectedCoin === "RVN" ? (
                   <article className="insight-card accent-card">
                     <span className="insight-label">RVN unMineable preset</span>
-                    <strong>BzMiner / KawPow / `kp.unmineable.com:3333`</strong>
-                    <p>Wallet: `rvn:REYeMLf1GoKn3D4w8haFQjZFW6St4itq8P.{config.worker || "worker-01"}`</p>
+                    <strong>BzMiner + XMRig / KawPow + RandomX</strong>
+                    <p>GPU: `kp.unmineable.com:3333` · CPU: `rx.unmineable.com:3333` · Wallet: `rvn:REYeMLf1GoKn3D4w8haFQjZFW6St4itq8P.{config.worker || "worker-01"}`</p>
                   </article>
                 ) : null}
 
@@ -807,7 +807,7 @@ function App() {
                         : coin === "BTC"
                           ? "GPU KawPow payout + CPU RandomX to Bitcoin"
                           : coin === "RVN"
-                            ? "GPU KawPow for Ravencoin"
+                            ? "GPU KawPow + CPU RandomX to Ravencoin"
                           : "GPU KawPow payout + CPU RandomX"}
                     </span>
                   </button>
@@ -866,13 +866,13 @@ function App() {
                     type="checkbox"
                     checked={config.cpuEnabled}
                     onChange={(event) => updateField("cpuEnabled", event.target.checked)}
-                    disabled={!runtimeState.setup.cpu.exists || selectedCoin === "RVN"}
+                    disabled={!runtimeState.setup.cpu.exists}
                   />
                   <div>
                     <strong>Enable CPU mining</strong>
                     <small>
                       {selectedCoin === "RVN"
-                        ? "RVN stays GPU-only in this preset. Ravencoin uses KawPow, which is the correct GPU algorithm for RVN."
+                        ? "XMRig runs RandomX through `rx.unmineable.com` while unMineable pays the CPU lane out in Ravencoin."
                         : "XMRig on RandomX through `rx.unmineable.com` with automatic user formatting."}
                     </small>
                   </div>

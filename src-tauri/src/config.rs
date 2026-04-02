@@ -178,9 +178,6 @@ pub fn apply_coin_preset(mut config: AppConfig) -> AppConfig {
         user: build_payout_user(&config),
         ..CpuPoolConfig::default()
     };
-    if config.payout_ticker == "RVN" {
-        config.cpu_enabled = false;
-    }
 
     config
 }
