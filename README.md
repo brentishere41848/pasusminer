@@ -6,8 +6,8 @@ It is not a browser-only website and not a plain SPA. The native Tauri shell own
 
 ## What It Does
 
-- launches an external GPU miner for KawPow mining
-- optionally launches an external CPU miner
+- launches an external GPU miner for the Litecoin KawPow preset
+- optionally launches an external CPU miner for Litecoin or Monero via RandomX
 - streams live miner logs into the desktop UI
 - keeps miner process lifecycle in the Tauri backend
 - stores local config in the app config directory
@@ -97,9 +97,10 @@ The workflow at `.github/workflows/publish-release.yml` publishes a draft GitHub
 
 ## Runtime Notes
 
-- GPU payout strings are built as `ltc:{wallet}.{worker}`
-- default GPU pool is `kp.unmineable.com:3333`
-- CPU mining is optional and uses a separate process/config block
+- Litecoin uses `bzminer` on `kp.unmineable.com:3333`
+- Monero GPU payouts also use `bzminer` on `kp.unmineable.com:3333`
+- Litecoin and Monero CPU presets use `xmrig` on `rx.unmineable.com:3333`
+- payout strings are built as `{coin}:{wallet}.{worker}`
 - duplicate backend starts are handled safely
 - duplicate backend stops are ignored safely
 

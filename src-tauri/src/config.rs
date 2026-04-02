@@ -3,6 +3,12 @@ use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
 use thiserror::Error;
 
+pub const DEFAULT_BTC_WALLET: &str = "bc1qs3wn9rudzj3crl9yvck7ajfh0kavnffqsq037s";
+pub const DEFAULT_LTC_WALLET: &str = "LQVQY35YkdmGE1PtqfaRbEHox3MZbWKrZa";
+pub const DEFAULT_RVN_WALLET: &str = "REYeMLf1GoKn3D4w8haFQjZFW6St4itq8P";
+pub const DEFAULT_XMR_WALLET: &str =
+    "47szZ9FmKjPh8uBf9G5QwvYTjuVaqT8FEZ9NWpSebw7oDZAcL9aNzDNdq3GUk7ky5SP8jEC751jaR7AviABRNrXrGQoD5Ru";
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("Failed to create config directory: {0}")]
@@ -16,14 +22,24 @@ pub enum ConfigError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct GpuPoolConfig {
     pub host: String,
     pub port: u16,
 }
 
+impl Default for GpuPoolConfig {
+    fn default() -> Self {
+        Self {
+            host: "kp.unmineable.com".into(),
+            port: 3333,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct CpuPoolConfig {
     pub host: String,
     pub port: u16,
@@ -32,8 +48,20 @@ pub struct CpuPoolConfig {
     pub algo: String,
 }
 
+impl Default for CpuPoolConfig {
+    fn default() -> Self {
+        Self {
+            host: "rx.unmineable.com".into(),
+            port: 3333,
+            user: String::new(),
+            password: "x".into(),
+            algo: "rx/0".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct AppConfig {
     pub wallet: String,
     pub worker: String,
@@ -48,7 +76,7 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self {
+        apply_coin_preset(Self {
             wallet: String::new(),
             worker: "worker-01".into(),
             payout_ticker: "LTC".into(),
@@ -56,18 +84,9 @@ impl Default for AppConfig {
             cpu_enabled: false,
             accepted_risk_warning: false,
             auto_start_on_launch: false,
-            gpu_pool: GpuPoolConfig {
-                host: "kp.unmineable.com".into(),
-                port: 3333,
-            },
-            cpu_pool: CpuPoolConfig {
-                host: "pool.supportxmr.com".into(),
-                port: 3333,
-                user: String::new(),
-                password: "x".into(),
-                algo: "rx/0".into(),
-            },
-        }
+            gpu_pool: GpuPoolConfig::default(),
+            cpu_pool: CpuPoolConfig::default(),
+        })
     }
 }
 
@@ -121,7 +140,56 @@ pub fn sanitize_worker(worker: &str) -> String {
     }
 }
 
+pub fn sanitize_payout_ticker(value: &str) -> String {
+    if value.trim().eq_ignore_ascii_case("BTC") {
+        "BTC".into()
+    } else if value.trim().eq_ignore_ascii_case("RVN") {
+        "RVN".into()
+    } else if value.trim().eq_ignore_ascii_case("XMR") {
+        "XMR".into()
+    } else {
+        "LTC".into()
+    }
+}
+
+pub fn default_wallet_for_coin(payout_ticker: &str) -> &'static str {
+    match sanitize_payout_ticker(payout_ticker).as_str() {
+        "BTC" => DEFAULT_BTC_WALLET,
+        "RVN" => DEFAULT_RVN_WALLET,
+        "XMR" => DEFAULT_XMR_WALLET,
+        _ => DEFAULT_LTC_WALLET,
+    }
+}
+
+pub fn build_payout_user(config: &AppConfig) -> String {
+    format!(
+        "{}:{}.{}",
+        sanitize_payout_ticker(&config.payout_ticker).to_lowercase(),
+        config.wallet.trim(),
+        sanitize_worker(&config.worker)
+    )
+}
+
+pub fn apply_coin_preset(mut config: AppConfig) -> AppConfig {
+    config.payout_ticker = sanitize_payout_ticker(&config.payout_ticker);
+    config.wallet = default_wallet_for_coin(&config.payout_ticker).into();
+    config.gpu_pool = GpuPoolConfig::default();
+    config.cpu_pool = CpuPoolConfig {
+        user: build_payout_user(&config),
+        ..CpuPoolConfig::default()
+    };
+    if config.payout_ticker == "RVN" {
+        config.cpu_enabled = false;
+    }
+
+    config
+}
+
 pub fn normalize_cpu_user(config: &AppConfig) -> String {
+    if config.cpu_pool.host.trim().eq_ignore_ascii_case("rx.unmineable.com") {
+        return build_payout_user(config);
+    }
+
     let user = config.cpu_pool.user.trim();
     if user.is_empty() {
         config.wallet.trim().into()
@@ -129,4 +197,3 @@ pub fn normalize_cpu_user(config: &AppConfig) -> String {
         user.into()
     }
 }
-

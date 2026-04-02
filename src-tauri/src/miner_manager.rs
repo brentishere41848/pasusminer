@@ -5,6 +5,7 @@ use crate::tools::detect_setup;
 use serde::Serialize;
 use std::{
     io::{BufRead, BufReader},
+    path::Path,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -90,6 +91,7 @@ pub enum MinerManagerError {
 
 struct ManagedProcess {
     child: Arc<Mutex<Child>>,
+    pid: u32,
 }
 
 struct MinerRuntime {
@@ -143,12 +145,12 @@ impl MinerManager {
         config: AppConfig,
     ) -> Result<StartMinerResponse, MinerManagerError> {
         ensure_valid_wallet(&config).map_err(|_| MinerManagerError::InvalidWallet)?;
-        let setup = detect_setup();
-        if !setup.gpu.exists {
+        let command = build_gpu_command(&config);
+        if !Path::new(&command.executable).exists() {
             return Err(MinerManagerError::MissingGpuExecutable);
         }
 
-        self.start_managed_process(app, MinerKind::Gpu, self.gpu.clone(), build_gpu_command(&config))
+        self.start_managed_process(app, MinerKind::Gpu, self.gpu.clone(), command)
     }
 
     pub fn start_cpu(
@@ -277,6 +279,7 @@ impl MinerManager {
             runtime_guard.stop_requested = false;
             runtime_guard.process = Some(ManagedProcess {
                 child: child.clone(),
+                pid,
             });
             emit_status(&app, miner, &runtime_guard);
         }
@@ -310,36 +313,40 @@ impl MinerManager {
         miner: MinerKind,
         runtime: Arc<Mutex<MinerRuntime>>,
     ) -> Result<(), MinerManagerError> {
-        let child = {
+        let (child, pid) = {
             let mut runtime_guard = runtime
                 .lock()
                 .map_err(|error| MinerManagerError::Stop(error.to_string()))?;
 
-            let Some(child) = runtime_guard.process.as_ref().map(|process| process.child.clone()) else {
+            let Some(process) = runtime_guard.process.as_ref() else {
                 runtime_guard.status = BackendMinerStatus::Stopped;
                 runtime_guard.message = Some("already stopped".into());
                 emit_status(app, miner, &runtime_guard);
                 return Ok(());
             };
+            let child = process.child.clone();
+            let pid = process.pid;
 
             runtime_guard.status = BackendMinerStatus::Stopping;
-            runtime_guard.message = Some("stop requested".into());
+            runtime_guard.message = Some("force stop requested".into());
             runtime_guard.stop_requested = true;
             emit_status(app, miner, &runtime_guard);
-            emit_manager_log(app, miner, "info", "stop requested");
-            child
+            emit_manager_log(app, miner, "warn", "force stop requested");
+            (child, pid)
         };
 
+        match kill_process_tree(pid) {
+            Ok(()) => emit_manager_log(app, miner, "info", &format!("force stop sent to pid {pid}")),
+            Err(error) => emit_manager_log(
+                app,
+                miner,
+                "warn",
+                &format!("force stop command returned error: {error}"),
+            ),
+        }
+
         if let Ok(mut child_guard) = child.lock() {
-            match child_guard.kill() {
-                Ok(()) => emit_manager_log(app, miner, "info", "process killed by app"),
-                Err(error) => emit_manager_log(
-                    app,
-                    miner,
-                    "warn",
-                    &format!("kill request returned error: {error}"),
-                ),
-            }
+            let _ = child_guard.try_wait();
         }
 
         Ok(())
@@ -472,4 +479,54 @@ fn emit_manager_log(app: &AppHandle, miner: MinerKind, level: &str, message: &st
             stream: "backend".into(),
         },
     );
+}
+
+#[cfg(target_os = "windows")]
+fn kill_process_tree(pid: u32) -> Result<(), String> {
+    let output = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Err(format!(
+        "taskkill failed with code {:?}: {}{}",
+        output.status.code(),
+        stdout.trim(),
+        if stderr.trim().is_empty() {
+            String::new()
+        } else {
+            format!(" {}", stderr.trim())
+        }
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_process_tree(pid: u32) -> Result<(), String> {
+    let output = Command::new("pkill")
+        .args(["-TERM", "-P", &pid.to_string()])
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    if !output.status.success() && output.status.code() != Some(1) {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("pkill failed: {}", stderr.trim()));
+    }
+
+    let output = Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .output()
+        .map_err(|error| error.to_string())?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("kill failed: {}", stderr.trim()))
+    }
 }

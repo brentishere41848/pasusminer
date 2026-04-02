@@ -1,4 +1,4 @@
-use crate::config::{normalize_cpu_user, sanitize_worker, AppConfig};
+use crate::config::{apply_coin_preset, build_payout_user, normalize_cpu_user, AppConfig};
 use crate::tools::{cpu_miner_path, gpu_miner_path};
 
 #[derive(Debug, Clone)]
@@ -16,11 +16,8 @@ impl BuiltCommand {
 }
 
 pub fn build_gpu_command(config: &AppConfig) -> BuiltCommand {
-    let wallet_string = format!(
-        "ltc:{}.{}",
-        config.wallet.trim(),
-        sanitize_worker(&config.worker)
-    );
+    let config = apply_coin_preset(config.clone());
+    let wallet_string = build_payout_user(&config);
 
     BuiltCommand {
         executable: gpu_miner_path().to_string_lossy().into_owned(),
@@ -42,6 +39,8 @@ pub fn build_gpu_command(config: &AppConfig) -> BuiltCommand {
 }
 
 pub fn build_cpu_command(config: &AppConfig) -> BuiltCommand {
+    let config = apply_coin_preset(config.clone());
+
     BuiltCommand {
         executable: cpu_miner_path().to_string_lossy().into_owned(),
         args: vec![
@@ -54,7 +53,7 @@ pub fn build_cpu_command(config: &AppConfig) -> BuiltCommand {
                 config.cpu_pool.port
             ),
             "-u".into(),
-            normalize_cpu_user(config),
+            normalize_cpu_user(&config),
             "-p".into(),
             config.cpu_pool.password.trim().into(),
             "-4".into(),
@@ -85,7 +84,7 @@ mod tests {
                 port: 3333,
             },
             cpu_pool: CpuPoolConfig {
-                host: "pool.supportxmr.com".into(),
+                host: "rx.unmineable.com".into(),
                 port: 3333,
                 user: String::new(),
                 password: "x".into(),
@@ -125,5 +124,42 @@ mod tests {
             .args
             .windows(2)
             .any(|window| window[0] == "-i" && window[1] == "32"));
+    }
+
+    #[test]
+    fn build_cpu_command_uses_unmineable_coin_prefixed_user() {
+        let command = build_cpu_command(&sample_config());
+
+        assert!(command.args.windows(2).any(|window| {
+            window[0] == "-u" && window[1] == "ltc:LQVQY35YkdmGE1PtqfaRbEHox3MZbWKrZa.worker-a"
+        }));
+    }
+
+    #[test]
+    fn build_gpu_command_supports_bitcoin_payout_strings() {
+        let mut config = sample_config();
+        config.payout_ticker = "BTC".into();
+
+        let command = super::build_gpu_command(&config);
+
+        assert!(command.args.windows(2).any(|window| {
+            window[0] == "-w"
+                && window[1]
+                    == "btc:bc1qs3wn9rudzj3crl9yvck7ajfh0kavnffqsq037s.worker-a"
+        }));
+    }
+
+    #[test]
+    fn build_gpu_command_supports_ravencoin_payout_strings() {
+        let mut config = sample_config();
+        config.payout_ticker = "RVN".into();
+
+        let command = super::build_gpu_command(&config);
+
+        assert!(command.args.windows(2).any(|window| {
+            window[0] == "-w"
+                && window[1] == "rvn:REYeMLf1GoKn3D4w8haFQjZFW6St4itq8P.worker-a"
+        }));
+        assert!(command.executable.ends_with("bzminer.exe") || command.executable.ends_with("bzminer"));
     }
 }

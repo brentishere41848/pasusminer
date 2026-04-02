@@ -40,6 +40,14 @@ fn gpu_miner_file_name() -> &'static str {
     }
 }
 
+fn trex_miner_file_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "t-rex.exe"
+    } else {
+        "t-rex"
+    }
+}
+
 fn cpu_miner_file_name() -> &'static str {
     if cfg!(target_os = "windows") {
         "xmrig.exe"
@@ -101,18 +109,31 @@ pub fn gpu_miner_path() -> PathBuf {
     resolve_tool_path(&["gpu", gpu_miner_file_name()])
 }
 
+pub fn trex_miner_path() -> PathBuf {
+    resolve_tool_path(&["gpu", trex_miner_file_name()])
+}
+
 pub fn cpu_miner_path() -> PathBuf {
     resolve_tool_path(&["cpu", cpu_miner_file_name()])
 }
 
 pub fn detect_setup() -> SetupStatus {
     let gpu_path = gpu_miner_path();
+    let trex_path = trex_miner_path();
     let cpu_path = cpu_miner_path();
+    let gpu_exists = gpu_path.exists() || trex_path.exists();
+    let gpu_display_path = if gpu_path.exists() {
+        gpu_path.to_string_lossy().into_owned()
+    } else if trex_path.exists() {
+        trex_path.to_string_lossy().into_owned()
+    } else {
+        gpu_path.to_string_lossy().into_owned()
+    };
 
     SetupStatus {
         gpu: ToolAvailability {
-            exists: gpu_path.exists(),
-            path: gpu_path.to_string_lossy().into_owned(),
+            exists: gpu_exists,
+            path: gpu_display_path,
         },
         cpu: ToolAvailability {
             exists: cpu_path.exists(),

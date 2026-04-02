@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Icon } from "./components/Icon";
 import { LogPanel } from "./components/LogPanel";
 import { SetupScreen } from "./components/SetupScreen";
 import { StatusBadge } from "./components/StatusBadge";
@@ -14,8 +15,9 @@ import {
   stopCpuMiner,
   stopGpuMiner
 } from "./lib/api";
+import { applyCoinPreset, buildPayoutUser, COIN_LABELS, sanitizeCoin } from "./lib/coins";
 import { defaultConfig, emptyRuntimeState } from "./lib/defaults";
-import { parseHashrate } from "./lib/logParser";
+import { parseHashrateReading } from "./lib/logParser";
 import type {
   AppConfig,
   HashrateEvent,
@@ -23,8 +25,11 @@ import type {
   MinerSnapshot,
   MinerStatus,
   MinerStatusEvent,
-  RuntimeState
+  RuntimeState,
+  SupportedCoin
 } from "./lib/types";
+
+type DashboardTab = "overview" | "control" | "logs";
 
 function App() {
   const [runtimeState, setRuntimeState] = useState<RuntimeState>(emptyRuntimeState);
@@ -35,13 +40,66 @@ function App() {
   const [cpuStatus, setCpuStatus] = useState<MinerStatus>("stopped");
   const [gpuHashrate, setGpuHashrate] = useState<string>("--");
   const [cpuHashrate, setCpuHashrate] = useState<string>("--");
+  const [gpuHistory, setGpuHistory] = useState<number[]>([]);
+  const [cpuHistory, setCpuHistory] = useState<number[]>([]);
   const [gpuCommandLine, setGpuCommandLine] = useState<string>("");
   const [cpuCommandLine, setCpuCommandLine] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const initialized = useRef(false);
 
   const toolsReady = runtimeState.setup.gpu.exists;
+  const selectedCoin = sanitizeCoin(config.payoutTicker);
+  const payoutPreview = useMemo(
+    () => buildPayoutUser(selectedCoin, config.wallet, config.worker),
+    [config.wallet, config.worker, selectedCoin]
+  );
+  const cpuUserPreview = useMemo(
+    () => buildPayoutUser(selectedCoin, config.wallet, config.worker),
+    [config.wallet, config.worker, selectedCoin]
+  );
+  const activeMiners = [gpuStatus, cpuStatus].filter((status) => status === "running").length;
+  const totalLogLines = gpuLogs.length + cpuLogs.length;
+  const poolFingerprint = `${config.gpuPool.host}:${config.gpuPool.port} / ${config.cpuPool.host}:${config.cpuPool.port}`;
+  const activeGpuBackend = "BzMiner";
+  const gpuMaxHistory = Math.max(...gpuHistory, 1);
+  const cpuMaxHistory = Math.max(...cpuHistory, 1);
+
+  const telemetryCards = [
+    {
+      key: "wallet",
+      icon: "wallet" as const,
+      label: "Payout identity",
+      value: COIN_LABELS[selectedCoin],
+      detail: payoutPreview,
+      tone: "accent"
+    },
+    {
+      key: "miners",
+      icon: "pulse" as const,
+      label: "Live miners",
+      value: `${activeMiners}/2`,
+      detail: activeMiners > 0 ? "Compute lanes active" : "Idle and waiting",
+      tone: ""
+    },
+    {
+      key: "routing",
+      icon: "route" as const,
+      label: "Routing preset",
+      value: "Auto-hosted",
+      detail: poolFingerprint,
+      tone: ""
+    },
+    {
+      key: "safety",
+      icon: "shield" as const,
+      label: "Safety gate",
+      value: config.acceptedRiskWarning ? "Acknowledged" : "Blocked",
+      detail: "Launch requires explicit hardware risk consent.",
+      tone: "warning"
+    }
+  ];
 
   useEffect(() => {
     let mounted = true;
@@ -53,8 +111,9 @@ function App() {
         return;
       }
 
+      const normalizedConfig = applyCoinPreset(state.config, state.config.payoutTicker);
       setRuntimeState(state);
-      setConfig(state.config);
+      setConfig(normalizedConfig);
       setGpuStatus(state.gpuStatus.status);
       setCpuStatus(state.cpuStatus.status);
       setGpuCommandLine(state.gpuStatus.commandLine ?? "");
@@ -67,15 +126,17 @@ function App() {
         const entry = `[${event.payload.miner.toUpperCase()}] ${event.payload.line}`;
         if (event.payload.miner === "gpu") {
           setGpuLogs((current) => [...current.slice(-499), entry]);
-          const parsed = parseHashrate(event.payload.line);
+          const parsed = parseHashrateReading(event.payload.line);
           if (parsed) {
-            setGpuHashrate(parsed);
+            setGpuHashrate(parsed.text);
+            setGpuHistory((current) => [...current.slice(-23), parsed.normalizedValue]);
           }
         } else {
           setCpuLogs((current) => [...current.slice(-499), entry]);
-          const parsed = parseHashrate(event.payload.line);
+          const parsed = parseHashrateReading(event.payload.line);
           if (parsed) {
-            setCpuHashrate(parsed);
+            setCpuHashrate(parsed.text);
+            setCpuHistory((current) => [...current.slice(-23), parsed.normalizedValue]);
           }
         }
       });
@@ -97,8 +158,16 @@ function App() {
       const hashrateUnlisten = await listen<HashrateEvent>("miner-hashrate", (event) => {
         if (event.payload.miner === "gpu") {
           setGpuHashrate(event.payload.hashrate);
+          const parsed = parseHashrateReading(event.payload.hashrate);
+          if (parsed) {
+            setGpuHistory((current) => [...current.slice(-23), parsed.normalizedValue]);
+          }
         } else {
           setCpuHashrate(event.payload.hashrate);
+          const parsed = parseHashrateReading(event.payload.hashrate);
+          if (parsed) {
+            setCpuHistory((current) => [...current.slice(-23), parsed.normalizedValue]);
+          }
         }
       });
 
@@ -122,31 +191,8 @@ function App() {
     void saveConfig(config);
   }, [config]);
 
-  const payoutPreview = useMemo(() => {
-    const wallet = config.wallet.trim();
-    const worker = config.worker.trim() || "worker";
-    if (!wallet) {
-      return "ltc:your_wallet.worker";
-    }
-
-    return `ltc:${wallet}.${worker}`;
-  }, [config.wallet, config.worker]);
-
   function updateField<K extends keyof AppConfig>(key: K, value: AppConfig[K]) {
     setConfig((current) => ({ ...current, [key]: value }));
-  }
-
-  function updateNestedField<
-    T extends "gpuPool" | "cpuPool",
-    K extends keyof AppConfig[T]
-  >(group: T, key: K, value: AppConfig[T][K]) {
-    setConfig((current) => ({
-      ...current,
-      [group]: {
-        ...current[group],
-        [key]: value
-      }
-    }));
   }
 
   async function refreshBackendStatus() {
@@ -168,9 +214,29 @@ function App() {
     }
   }
 
+  function handleCoinChange(coin: SupportedCoin) {
+    setConfig((current) => applyCoinPreset(current, coin));
+    setErrorMessage("");
+  }
+
+  async function copyText(value: string, label: string) {
+    if (!value.trim()) {
+      setErrorMessage(`No ${label.toLowerCase()} available yet.`);
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setErrorMessage(`${label} copied to clipboard.`);
+    } catch {
+      setErrorMessage(`Failed to copy ${label.toLowerCase()}.`);
+    }
+  }
+
   async function handleStart() {
-    const wallet = config.wallet.trim();
-    const worker = config.worker.trim();
+    const normalizedPreset = applyCoinPreset(config, selectedCoin);
+    const wallet = normalizedPreset.wallet.trim();
+    const worker = normalizedPreset.worker.trim();
 
     if (!wallet) {
       setErrorMessage("Wallet address is required.");
@@ -187,10 +253,10 @@ function App() {
 
     try {
       const normalizedConfig: AppConfig = {
-        ...config,
+        ...normalizedPreset,
         wallet,
         worker: worker || "worker",
-        payoutTicker: config.payoutTicker.trim().toUpperCase()
+        payoutTicker: selectedCoin
       };
 
       setConfig(normalizedConfig);
@@ -198,6 +264,7 @@ function App() {
       if (normalizedConfig.gpuEnabled) {
         setGpuLogs([]);
         setGpuHashrate("--");
+        setGpuHistory([]);
         await startGpuMiner(normalizedConfig);
       } else {
         await stopGpuMiner();
@@ -206,6 +273,7 @@ function App() {
       if (normalizedConfig.cpuEnabled) {
         setCpuLogs([]);
         setCpuHashrate("--");
+        setCpuHistory([]);
         await startCpuMiner(normalizedConfig);
       } else {
         await stopCpuMiner();
@@ -232,7 +300,8 @@ function App() {
   }
 
   async function handleCpuTest() {
-    const wallet = config.wallet.trim();
+    const normalizedPreset = applyCoinPreset(config, selectedCoin);
+    const wallet = normalizedPreset.wallet.trim();
     if (!wallet) {
       setErrorMessage("Wallet address is required.");
       return;
@@ -242,13 +311,14 @@ function App() {
     setErrorMessage("");
     setCpuLogs([]);
     setCpuHashrate("--");
+    setCpuHistory([]);
 
     try {
       const normalizedConfig: AppConfig = {
-        ...config,
+        ...normalizedPreset,
         wallet,
-        worker: config.worker.trim() || "worker",
-        payoutTicker: config.payoutTicker.trim().toUpperCase()
+        worker: normalizedPreset.worker.trim() || "worker",
+        payoutTicker: selectedCoin
       };
       setConfig(normalizedConfig);
       await startCpuMinerTest(normalizedConfig);
@@ -266,248 +336,481 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="hero panel">
-        <div>
-          <p className="eyebrow">Pasus Miner</p>
-          <h1>Simple KawPow mining launcher for desktop</h1>
+      <div className="ambient ambient-a" />
+      <div className="ambient ambient-b" />
+      <div className="ambient-grid" />
+
+      <section className="command-bar panel">
+        <div className="command-brand">
+          <div className="brand-icon">
+            <Icon name="spark" />
+          </div>
+          <div>
+            <p className="eyebrow">Pasus Miner</p>
+            <h1>Operator-grade mining desk for Windows.</h1>
+          </div>
+        </div>
+
+        <div className="command-actions">
+          <button className="primary-button" disabled={busy} onClick={() => void handleStart()}>
+            <Icon name="play" className="button-icon" />
+            {busy ? "Working..." : "Launch Mining"}
+          </button>
+          <button className="secondary-button" disabled={busy} onClick={() => void handleStop()}>
+            Stop Everything
+          </button>
+        </div>
+      </section>
+
+      <section className="hero-panel panel">
+        <div className="hero-copy-block">
+          <p className="section-kicker">Mission Brief</p>
+          <h2>Native Tauri shell, automatic pool presets, and miner process ownership in Rust.</h2>
           <p className="hero-copy">
-            Native Tauri desktop app. Backend process ownership stays in Rust and only the
-            UI sends explicit start or stop commands.
+            The UI is now organized like a desktop console: top-level navigation, a live telemetry strip,
+            a focused control deck, and terminal-grade miner output instead of a generic settings page.
           </p>
         </div>
-        <div className="warning-card">
-          <h2>Resource Warning</h2>
-          <p>
-            Mining can draw significant power, increase heat output, and stress CPU or
-            GPU hardware for extended periods.
-          </p>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={config.acceptedRiskWarning}
-              onChange={(event) => updateField("acceptedRiskWarning", event.target.checked)}
-            />
-            <span>I understand and accept the hardware and power usage risk.</span>
-          </label>
-        </div>
-      </section>
 
-      <section className="content-grid">
-        <section className="panel controls-panel">
-          <div className="panel-header">
-            <h2>Mining Controls</h2>
-          </div>
-
-          <div className="form-grid">
-            <label className="field">
-              <span>Wallet Address</span>
-              <input
-                type="text"
-                value={config.wallet}
-                onChange={(event) => updateField("wallet", event.target.value)}
-                placeholder="Enter payout wallet"
-              />
-            </label>
-
-            <label className="field">
-              <span>Worker Name</span>
-              <input
-                type="text"
-                value={config.worker}
-                onChange={(event) => updateField("worker", event.target.value)}
-                placeholder="worker-01"
-              />
-            </label>
-
-            <label className="field">
-              <span>Optional Coin Ticker</span>
-              <input
-                type="text"
-                value={config.payoutTicker}
-                onChange={(event) => updateField("payoutTicker", event.target.value.toUpperCase())}
-                placeholder="LTC"
-              />
-            </label>
-
-            <div className="field preview-field">
-              <span>Wallet String Preview</span>
-              <code>{payoutPreview}</code>
+        <div className="hero-side">
+          <div className="hero-stack">
+            <div className="hero-chip">
+              <Icon name="wallet" className="hero-chip-icon" />
+              <span>{COIN_LABELS[selectedCoin]} payout active</span>
             </div>
-
-            <label className="toggle-card">
-              <input
-                type="checkbox"
-                checked={config.gpuEnabled}
-                onChange={(event) => updateField("gpuEnabled", event.target.checked)}
-              />
-              <div>
-                <strong>Enable GPU Mining</strong>
-                <small>Uses BzMiner with KawPow.</small>
-              </div>
-            </label>
-
-            <label className="toggle-card">
-              <input
-                type="checkbox"
-                checked={config.cpuEnabled}
-                onChange={(event) => updateField("cpuEnabled", event.target.checked)}
-                disabled={!runtimeState.setup.cpu.exists}
-              />
-              <div>
-                <strong>Enable CPU Mining</strong>
-                <small>Uses XMRig with backend-owned process lifecycle.</small>
-              </div>
-            </label>
-
-            <label className="toggle-card">
-              <input
-                type="checkbox"
-                checked={config.autoStartOnLaunch}
-                onChange={(event) => updateField("autoStartOnLaunch", event.target.checked)}
-              />
-              <div>
-                <strong>Auto-start setting</strong>
-                <small>Saved locally only. The UI does not auto-start miners on mount.</small>
-              </div>
-            </label>
+            <div className="hero-chip">
+              <Icon name="route" className="hero-chip-icon" />
+              <span>{poolFingerprint}</span>
+            </div>
           </div>
-
-          <div className="button-row">
-            <button className="primary-button" disabled={busy} onClick={() => void handleStart()}>
-              Start
-            </button>
-            <button className="secondary-button" disabled={busy} onClick={() => void handleStop()}>
-              Stop
-            </button>
-            <button className="secondary-button" disabled={busy} onClick={() => void handleCpuTest()}>
-              CPU Test
-            </button>
-          </div>
-
-          {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
-        </section>
-
-        <section className="panel settings-panel">
-          <div className="panel-header">
-            <h2>Pool Settings</h2>
-          </div>
-
-          <div className="settings-group">
-            <h3>GPU Pool</h3>
-            <label className="field">
-              <span>Host</span>
-              <input
-                type="text"
-                value={config.gpuPool.host}
-                onChange={(event) => updateNestedField("gpuPool", "host", event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Port</span>
-              <input
-                type="number"
-                value={config.gpuPool.port}
-                onChange={(event) =>
-                  updateNestedField("gpuPool", "port", Number(event.target.value))
-                }
-              />
-            </label>
-          </div>
-
-          <div className="settings-group">
-            <h3>CPU Pool</h3>
-            <label className="field">
-              <span>Host</span>
-              <input
-                type="text"
-                value={config.cpuPool.host}
-                onChange={(event) => updateNestedField("cpuPool", "host", event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Port</span>
-              <input
-                type="number"
-                value={config.cpuPool.port}
-                onChange={(event) =>
-                  updateNestedField("cpuPool", "port", Number(event.target.value))
-                }
-              />
-            </label>
-            <label className="field">
-              <span>User / Wallet</span>
-              <input
-                type="text"
-                value={config.cpuPool.user}
-                onChange={(event) => updateNestedField("cpuPool", "user", event.target.value)}
-                placeholder="Optional XMRig pool user"
-              />
-            </label>
-            <label className="field">
-              <span>Password</span>
-              <input
-                type="text"
-                value={config.cpuPool.password}
-                onChange={(event) =>
-                  updateNestedField("cpuPool", "password", event.target.value)
-                }
-              />
-            </label>
-            <label className="field">
-              <span>Algorithm</span>
-              <input
-                type="text"
-                value={config.cpuPool.algo}
-                onChange={(event) => updateNestedField("cpuPool", "algo", event.target.value)}
-              />
-            </label>
-          </div>
-        </section>
+        </div>
       </section>
 
-      <section className="status-grid">
-        <section className="panel stat-panel">
-          <div className="panel-header">
-            <h2>GPU Miner</h2>
-          </div>
-          <StatusBadge label="GPU Status" status={gpuStatus} />
-          <div className="hashrate-card">
-            <span>Hashrate</span>
-            <strong>{gpuHashrate}</strong>
-          </div>
-          <div className="debug-panel">
-            <span>Exact Command</span>
-            <code>{gpuCommandLine || "No GPU command yet."}</code>
-          </div>
-        </section>
-
-        <section className="panel stat-panel">
-          <div className="panel-header">
-            <h2>CPU Miner</h2>
-          </div>
-          <StatusBadge label="CPU Status" status={cpuStatus} />
-          <div className="hashrate-card">
-            <span>Hashrate</span>
-            <strong>{cpuHashrate}</strong>
-          </div>
-          <div className="debug-panel">
-            <span>Exact Command</span>
-            <code>{cpuCommandLine || "No CPU command yet."}</code>
-          </div>
-        </section>
+      <section className="telemetry-strip">
+        {telemetryCards.map((card) => (
+          <article key={card.key} className={`telemetry-card ${card.tone}`}>
+            <div className="telemetry-icon">
+              <Icon name={card.icon} />
+            </div>
+            <div className="telemetry-copy">
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+              <p>{card.detail}</p>
+            </div>
+          </article>
+        ))}
       </section>
 
-      <section className="logs-grid">
-        <LogPanel
-          title="GPU Log"
-          lines={gpuLogs}
-          emptyMessage="GPU miner output will appear here."
-        />
-        <LogPanel
-          title="CPU Log"
-          lines={cpuLogs}
-          emptyMessage="CPU miner output will appear here."
-        />
+      <section className="tabs-shell panel">
+        <div className="tabs-header">
+          <div className="tab-rail" role="tablist" aria-label="Dashboard tabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "overview"}
+              className={`tab-button ${activeTab === "overview" ? "active" : ""}`}
+              onClick={() => setActiveTab("overview")}
+            >
+              <Icon name="pulse" className="tab-icon" />
+              Overview
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "control"}
+              className={`tab-button ${activeTab === "control" ? "active" : ""}`}
+              onClick={() => setActiveTab("control")}
+            >
+              <Icon name="chip" className="tab-icon" />
+              Control Deck
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "logs"}
+              className={`tab-button ${activeTab === "logs" ? "active" : ""}`}
+              onClick={() => setActiveTab("logs")}
+            >
+              <Icon name="terminal" className="tab-icon" />
+              Terminal
+            </button>
+          </div>
+
+          <div className="tab-summary">
+            <span>{totalLogLines} log lines buffered</span>
+            <span>{config.acceptedRiskWarning ? "Ready to launch" : "Consent required"}</span>
+          </div>
+        </div>
+
+        {activeTab === "overview" ? (
+          <div className="overview-grid">
+            <section className="panel inner-panel">
+              <div className="section-heading compact">
+                <div>
+                  <p className="section-kicker">Preset Intelligence</p>
+                  <h2>Automatic routing and miner profile</h2>
+                </div>
+                <span className="section-chip subtle">Locked to unMineable presets</span>
+              </div>
+
+              <div className="preset-grid">
+                <article className="preset-card gpu">
+                  <div className="preset-topline">
+                    <span className="preset-type">GPU lane</span>
+                    <StatusBadge label="GPU" status={gpuStatus} />
+                  </div>
+                  <div className="preset-badges">
+                    <span className={`coin-algo-badge ${selectedCoin === "RVN" ? "accent" : ""}`}>
+                      KawPow
+                    </span>
+                    <span className="coin-algo-badge">{activeGpuBackend}</span>
+                  </div>
+                  <strong>{activeGpuBackend} / KawPow</strong>
+                  <p>Host: {config.gpuPool.host}:{config.gpuPool.port}</p>
+                  <p>Wallet string: {payoutPreview}</p>
+                </article>
+
+                <article className="preset-card cpu">
+                  <div className="preset-topline">
+                    <span className="preset-type">CPU lane</span>
+                    <StatusBadge label="CPU" status={cpuStatus} />
+                  </div>
+                  <div className="preset-badges">
+                    <span className="coin-algo-badge accent">RandomX</span>
+                    <span className="coin-algo-badge">XMRig</span>
+                  </div>
+                  <strong>XMRig / RandomX</strong>
+                  <p>Host: {config.cpuPool.host}:{config.cpuPool.port}</p>
+                  <p>User string: {cpuUserPreview}</p>
+                </article>
+              </div>
+
+              <div className="insight-list">
+                <article className="insight-card">
+                  <span className="insight-label">Exact preset behavior</span>
+                  <strong>
+                    {selectedCoin === "LTC"
+                      ? "Litecoin payout mode"
+                      : selectedCoin === "BTC"
+                        ? "Bitcoin payout mode"
+                        : selectedCoin === "RVN"
+                          ? "Ravencoin payout mode"
+                          : "Monero payout mode"}
+                  </strong>
+                  <p>
+                    {selectedCoin === "LTC"
+                      ? "GPU stays on KawPow while CPU stays on RandomX, both paying out to Litecoin."
+                      : selectedCoin === "BTC"
+                        ? "GPU and CPU mine their normal workloads while unMineable pays out to your Bitcoin address."
+                      : selectedCoin === "RVN"
+                          ? "RVN uses the KawPow GPU path on `kp.unmineable.com:3333` and this preset currently keeps CPU mining off."
+                      : "GPU and CPU remain available while payout formatting and pool hosts stay automatic for Monero."}
+                  </p>
+                </article>
+
+                {selectedCoin === "RVN" ? (
+                  <article className="insight-card accent-card">
+                    <span className="insight-label">RVN unMineable preset</span>
+                    <strong>BzMiner / KawPow / `kp.unmineable.com:3333`</strong>
+                    <p>Wallet: `rvn:REYeMLf1GoKn3D4w8haFQjZFW6St4itq8P.{config.worker || "worker-01"}`</p>
+                  </article>
+                ) : null}
+
+                <article className="insight-card">
+                  <span className="insight-label">Runtime ownership</span>
+                  <strong>Rust backend manages the miner lifecycle</strong>
+                  <p>Process spawning, logging, and exit tracking stay in the native shell instead of the frontend.</p>
+                </article>
+              </div>
+            </section>
+
+            <section className="runtime-stack">
+              <section className="panel stat-panel gpu-panel">
+                <div className="section-heading compact">
+                  <div>
+                    <p className="section-kicker">GPU Runtime</p>
+                    <h2>Graphics miner</h2>
+                  </div>
+                  <StatusBadge label="GPU" status={gpuStatus} />
+                </div>
+                <div className="stat-hero">
+                  <div className="hashrate-card">
+                    <span>Current hashrate</span>
+                    <strong>{gpuHashrate}</strong>
+                    <div className="sparkline" aria-hidden="true">
+                      {(gpuHistory.length === 0 ? [0] : gpuHistory).map((point, index) => (
+                        <span
+                          key={`gpu-point-${index}`}
+                          className="spark-bar"
+                          style={{ height: `${Math.max(10, (point / gpuMaxHistory) * 100)}%` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mini-facts">
+                    <div>
+                      <span>Mode</span>
+                      <strong>KawPow</strong>
+                    </div>
+                    <div>
+                      <span>Backend</span>
+                      <strong>{activeGpuBackend}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="debug-panel">
+                  <div className="debug-header">
+                    <span>Command line</span>
+                    <button
+                      type="button"
+                      className="inline-action"
+                      onClick={() => void copyText(gpuCommandLine, "GPU command")}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <code>{gpuCommandLine || "No GPU command yet."}</code>
+                </div>
+              </section>
+
+              <section className="panel stat-panel cpu-panel">
+                <div className="section-heading compact">
+                  <div>
+                    <p className="section-kicker">CPU Runtime</p>
+                    <h2>Processor miner</h2>
+                  </div>
+                  <StatusBadge label="CPU" status={cpuStatus} />
+                </div>
+                <div className="stat-hero">
+                  <div className="hashrate-card">
+                    <span>Current hashrate</span>
+                    <strong>{cpuHashrate}</strong>
+                    <div className="sparkline" aria-hidden="true">
+                      {(cpuHistory.length === 0 ? [0] : cpuHistory).map((point, index) => (
+                        <span
+                          key={`cpu-point-${index}`}
+                          className="spark-bar"
+                          style={{ height: `${Math.max(10, (point / cpuMaxHistory) * 100)}%` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mini-facts">
+                    <div>
+                      <span>Mode</span>
+                      <strong>RandomX</strong>
+                    </div>
+                    <div>
+                      <span>Preset</span>
+                      <strong>rx.unmineable.com</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="debug-panel">
+                  <div className="debug-header">
+                    <span>Command line</span>
+                    <button
+                      type="button"
+                      className="inline-action"
+                      onClick={() => void copyText(cpuCommandLine, "CPU command")}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <code>{cpuCommandLine || "No CPU command yet."}</code>
+                </div>
+              </section>
+            </section>
+          </div>
+        ) : null}
+
+        {activeTab === "control" ? (
+          <div className="control-grid">
+            <section className="panel inner-panel control-deck">
+              <div className="section-heading">
+                <div>
+                  <p className="section-kicker">Mission Control</p>
+                  <h2>Configure the mining profile</h2>
+                </div>
+                <span className="section-chip">Desktop workflow</span>
+              </div>
+
+              <div className="coin-selector" role="tablist" aria-label="Coin selection">
+                {(["LTC", "XMR", "BTC", "RVN"] as SupportedCoin[]).map((coin) => (
+                  <button
+                    key={coin}
+                    type="button"
+                    className={`coin-option ${selectedCoin === coin ? "active" : ""}`}
+                    onClick={() => handleCoinChange(coin)}
+                  >
+                    <div className="coin-topline">
+                      <span className="coin-symbol">{coin}</span>
+                      <span className={`coin-algo-badge ${coin === "RVN" ? "accent" : ""}`}>
+                        {coin === "RVN" ? "KawPow" : coin === "XMR" ? "RandomX + KawPow" : "unMineable Auto"}
+                      </span>
+                    </div>
+                    <span className="coin-name">{COIN_LABELS[coin]}</span>
+                    <span className="coin-note">
+                      {coin === "LTC"
+                        ? "GPU KawPow + CPU RandomX"
+                        : coin === "BTC"
+                          ? "GPU KawPow payout + CPU RandomX to Bitcoin"
+                          : coin === "RVN"
+                            ? "GPU KawPow for Ravencoin"
+                          : "GPU KawPow payout + CPU RandomX"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="form-grid polished">
+                <label className="field">
+                  <span>{COIN_LABELS[selectedCoin]} Wallet</span>
+                  <input type="text" value={config.wallet} readOnly />
+                </label>
+
+                <label className="field">
+                  <span>Worker Name</span>
+                  <input
+                    type="text"
+                    value={config.worker}
+                    onChange={(event) => updateField("worker", event.target.value)}
+                    placeholder="worker-01"
+                  />
+                </label>
+
+                <div className="field preview-field wide">
+                  <span>Payout identity</span>
+                  <code>{payoutPreview}</code>
+                </div>
+              </div>
+
+              <div className="toggle-stack">
+                <label className="toggle-card emphasis">
+                  <input
+                    type="checkbox"
+                    checked={config.acceptedRiskWarning}
+                    onChange={(event) => updateField("acceptedRiskWarning", event.target.checked)}
+                  />
+                  <div>
+                    <strong>Hardware risk acknowledged</strong>
+                    <small>Required before launching miners. High heat, power draw, and sustained load are expected.</small>
+                  </div>
+                </label>
+
+                <label className="toggle-card">
+                  <input
+                    type="checkbox"
+                    checked={config.gpuEnabled}
+                    onChange={(event) => updateField("gpuEnabled", event.target.checked)}
+                  />
+                  <div>
+                    <strong>Enable GPU mining</strong>
+                    <small>BzMiner on KawPow through `kp.unmineable.com` with your selected payout coin.</small>
+                  </div>
+                </label>
+
+                <label className="toggle-card">
+                  <input
+                    type="checkbox"
+                    checked={config.cpuEnabled}
+                    onChange={(event) => updateField("cpuEnabled", event.target.checked)}
+                    disabled={!runtimeState.setup.cpu.exists || selectedCoin === "RVN"}
+                  />
+                  <div>
+                    <strong>Enable CPU mining</strong>
+                    <small>
+                      {selectedCoin === "RVN"
+                        ? "RVN stays GPU-only in this preset. Ravencoin uses KawPow, which is the correct GPU algorithm for RVN."
+                        : "XMRig on RandomX through `rx.unmineable.com` with automatic user formatting."}
+                    </small>
+                  </div>
+                </label>
+
+                <label className="toggle-card">
+                  <input
+                    type="checkbox"
+                    checked={config.autoStartOnLaunch}
+                    onChange={(event) => updateField("autoStartOnLaunch", event.target.checked)}
+                  />
+                  <div>
+                    <strong>Remember launch intent</strong>
+                    <small>Stored locally in the app config so your preferred mode is preserved between sessions.</small>
+                  </div>
+                </label>
+              </div>
+
+              <div className="button-row">
+                <button className="primary-button" disabled={busy} onClick={() => void handleStart()}>
+                  Start Selected Miners
+                </button>
+                <button className="secondary-button" disabled={busy} onClick={() => void handleStop()}>
+                  Stop Miners
+                </button>
+                <button className="secondary-button" disabled={busy} onClick={() => void handleCpuTest()}>
+                  Dry-run CPU Path
+                </button>
+              </div>
+
+              {errorMessage ? <p className="error-banner">{errorMessage}</p> : null}
+            </section>
+
+            <section className="panel inner-panel operator-panel">
+              <div className="section-heading compact">
+                <div>
+                  <p className="section-kicker">Operator Notes</p>
+                  <h2>Current launch envelope</h2>
+                </div>
+                <span className="section-chip subtle">Read-only system guidance</span>
+              </div>
+
+              <div className="operator-list">
+                <article className="operator-card">
+                  <div className="operator-icon">
+                    <Icon name="gpu" />
+                  </div>
+                  <div>
+                    <strong>GPU command path</strong>
+                    <p>KawPow routed through `kp.unmineable.com` using your selected payout identity. On your RTX 5060 Ti, BzMiner is the preferred backend.</p>
+                  </div>
+                </article>
+                <article className="operator-card">
+                  <div className="operator-icon">
+                    <Icon name="cpu" />
+                  </div>
+                  <div>
+                    <strong>CPU command path</strong>
+                    <p>RandomX routed through `rx.unmineable.com` with automatic `user` formatting.</p>
+                  </div>
+                </article>
+                <article className="operator-card">
+                  <div className="operator-icon">
+                    <Icon name="shield" />
+                  </div>
+                  <div>
+                    <strong>Launch protection</strong>
+                    <p>The app blocks start until the resource warning is accepted in the control deck.</p>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {activeTab === "logs" ? (
+          <div className="logs-grid deluxe terminal-layout">
+            <LogPanel
+              title="GPU Terminal"
+              lines={gpuLogs}
+              emptyMessage="GPU miner output will appear here."
+            />
+            <LogPanel
+              title="CPU Terminal"
+              lines={cpuLogs}
+              emptyMessage="CPU miner output will appear here."
+            />
+          </div>
+        ) : null}
       </section>
     </main>
   );

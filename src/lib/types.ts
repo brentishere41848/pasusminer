@@ -1,5 +1,6 @@
 export type MinerKind = "gpu" | "cpu";
 export type MinerStatus = "stopped" | "starting" | "running" | "stopping" | "failed";
+export type SupportedCoin = "LTC" | "XMR" | "BTC" | "RVN";
 
 export interface GpuPoolConfig {
   host: string;
@@ -17,7 +18,7 @@ export interface CpuPoolConfig {
 export interface AppConfig {
   wallet: string;
   worker: string;
-  payoutTicker: string;
+  payoutTicker: SupportedCoin;
   gpuEnabled: boolean;
   cpuEnabled: boolean;
   acceptedRiskWarning: boolean;
