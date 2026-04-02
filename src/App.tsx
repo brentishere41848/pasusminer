@@ -461,6 +461,12 @@ function App() {
         </div>
 
         <div className="command-actions">
+          {updatePhase === "available" ? (
+            <button className="update-ready-button" onClick={() => void handleInstallUpdate()}>
+              <Icon name="spark" className="button-icon" />
+              Update {updateVersion} Ready
+            </button>
+          ) : null}
           <button className="primary-button" disabled={busy} onClick={() => void handleStart()}>
             <Icon name="play" className="button-icon" />
             {busy ? "Working..." : "Launch Mining"}

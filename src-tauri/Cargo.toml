@@ -1,6 +1,6 @@
 [package]
 name = "pasus-miner"
-version = "0.1.6"
+version = "0.1.7"
 description = "Pasus Miner desktop launcher"
 authors = ["OpenAI Codex"]
 edition = "2021"
