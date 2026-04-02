@@ -52,9 +52,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Pasus Miner ${{ github.ref_name }}"
-          releaseBody: "Desktop installers and bundles for Windows, macOS, and Linux."
-          releaseDraft: true
+          releaseBody: "Desktop installers and bundles for Windows and Linux, plus updater metadata for the built-in Tauri updater."
+          releaseDraft: false
           prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
