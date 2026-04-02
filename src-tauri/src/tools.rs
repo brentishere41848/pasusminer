@@ -94,7 +94,9 @@ fn candidate_tool_roots() -> Vec<PathBuf> {
 
 fn resolve_tool_path(relative_path: &[&str]) -> PathBuf {
     for root in candidate_tool_roots() {
-        let candidate = relative_path.iter().fold(root.clone(), |path, segment| path.join(segment));
+        let candidate = relative_path
+            .iter()
+            .fold(root.clone(), |path, segment| path.join(segment));
         if candidate.exists() {
             return candidate;
         }
@@ -102,7 +104,9 @@ fn resolve_tool_path(relative_path: &[&str]) -> PathBuf {
 
     relative_path
         .iter()
-        .fold(project_root().join("tools"), |path, segment| path.join(segment))
+        .fold(project_root().join("tools"), |path, segment| {
+            path.join(segment)
+        })
 }
 
 pub fn gpu_miner_path() -> PathBuf {

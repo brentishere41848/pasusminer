@@ -11,6 +11,7 @@ It is not a browser-only website and not a plain SPA. The native Tauri shell own
 - streams live miner logs into the desktop UI
 - keeps miner process lifecycle in the Tauri backend
 - stores local config in the app config directory
+- checks for signed in-app updates on startup
 - packages as a real desktop app for Windows and Linux
 
 ## Platform Support
@@ -72,6 +73,10 @@ Desktop package build on the current OS:
 
 - `npm run tauri:build`
 
+Signed updater-aware release build and GitHub publish:
+
+- `npm run release:publish`
+
 Convenience aliases:
 
 - `npm run tauri:build:windows`
@@ -84,6 +89,8 @@ Typical outputs:
 - Windows: `.exe` installer via NSIS
 - Linux: `.AppImage`, `.deb`, and other supported Linux bundles
 
+When the updater signing key is available, Tauri also generates signed updater artifacts and Pasus Miner publishes a `latest.json` asset for the built-in updater.
+
 ## GitHub Actions
 
 The workflow at `.github/workflows/build-release.yml` builds artifacts on:
@@ -95,6 +102,18 @@ It uploads packaged artifacts for each platform so releases do not depend on one
 
 The workflow at `.github/workflows/publish-release.yml` publishes a draft GitHub Release when you push a tag like `v0.1.0`. That release collects the native installers and bundles built on Windows and Linux runners.
 
+For local Windows publishing, `scripts/publish-release.ps1` will:
+
+- build signed installers
+- copy canonical installers into `build/`
+- generate `build/latest.json` for the Tauri updater
+- push `main`
+- force-move the matching `v<version>` tag
+- create or update the GitHub Release
+- upload the `.exe`, `.msi`, and `latest.json`
+
+The updater signing key is expected at `C:\Users\Brent\.tauri\pasus-miner-updater.key` unless `TAURI_SIGNING_PRIVATE_KEY` is already set.
+
 ## Runtime Notes
 
 - Litecoin uses `bzminer` on `kp.unmineable.com:3333`
@@ -103,6 +122,8 @@ The workflow at `.github/workflows/publish-release.yml` publishes a draft GitHub
 - payout strings are built as `{coin}:{wallet}.{worker}`
 - duplicate backend starts are handled safely
 - duplicate backend stops are ignored safely
+- updater checks GitHub Releases at startup using `latest.json`
+- Windows updates install in passive mode through the native Tauri updater
 
 ## Safety Notes
 

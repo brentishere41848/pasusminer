@@ -164,7 +164,12 @@ impl MinerManager {
             return Err(MinerManagerError::MissingCpuExecutable);
         }
 
-        self.start_managed_process(app, MinerKind::Cpu, self.cpu.clone(), build_cpu_command(&config))
+        self.start_managed_process(
+            app,
+            MinerKind::Cpu,
+            self.cpu.clone(),
+            build_cpu_command(&config),
+        )
     }
 
     pub fn stop_gpu(&self, app: &AppHandle) -> Result<(), MinerManagerError> {
@@ -237,7 +242,9 @@ impl MinerManager {
 
             if matches!(
                 runtime_guard.status,
-                BackendMinerStatus::Starting | BackendMinerStatus::Running | BackendMinerStatus::Stopping
+                BackendMinerStatus::Starting
+                    | BackendMinerStatus::Running
+                    | BackendMinerStatus::Stopping
             ) && runtime_guard.process.is_some()
             {
                 runtime_guard.message = Some("already running".into());
@@ -284,7 +291,12 @@ impl MinerManager {
             emit_status(&app, miner, &runtime_guard);
         }
 
-        emit_manager_log(&app, miner, "info", &format!("process spawned with pid {pid}"));
+        emit_manager_log(
+            &app,
+            miner,
+            "info",
+            &format!("process spawned with pid {pid}"),
+        );
 
         if let Some(stdout) = stdout {
             stream_output(app.clone(), miner, stdout, "stdout");
@@ -336,7 +348,9 @@ impl MinerManager {
         };
 
         match kill_process_tree(pid) {
-            Ok(()) => emit_manager_log(app, miner, "info", &format!("force stop sent to pid {pid}")),
+            Ok(()) => {
+                emit_manager_log(app, miner, "info", &format!("force stop sent to pid {pid}"))
+            }
             Err(error) => emit_manager_log(
                 app,
                 miner,
@@ -431,8 +445,10 @@ fn watch_exit(
                     runtime_guard.message = Some("process exited".into());
                 } else {
                     runtime_guard.status = BackendMinerStatus::Failed;
-                    runtime_guard.message =
-                        Some(format!("process exited unexpectedly with code {:?}", status.code()));
+                    runtime_guard.message = Some(format!(
+                        "process exited unexpectedly with code {:?}",
+                        status.code()
+                    ));
                 }
                 runtime_guard.stop_requested = false;
                 emit_status(&app, miner, &runtime_guard);

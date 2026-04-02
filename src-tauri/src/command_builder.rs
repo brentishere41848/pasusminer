@@ -47,11 +47,7 @@ pub fn build_cpu_command(config: &AppConfig) -> BuiltCommand {
             "-a".into(),
             config.cpu_pool.algo.trim().into(),
             "-o".into(),
-            format!(
-                "{}:{}",
-                config.cpu_pool.host.trim(),
-                config.cpu_pool.port
-            ),
+            format!("{}:{}", config.cpu_pool.host.trim(), config.cpu_pool.port),
             "-u".into(),
             normalize_cpu_user(&config),
             "-p".into(),
@@ -97,9 +93,10 @@ mod tests {
     fn build_cpu_command_uses_split_dns_ipv6_args() {
         let command = build_cpu_command(&sample_config());
 
-        assert!(command.args.windows(2).any(|window| {
-            window[0] == "--dns-ipv6" && window[1] == "0"
-        }));
+        assert!(command
+            .args
+            .windows(2)
+            .any(|window| { window[0] == "--dns-ipv6" && window[1] == "0" }));
         assert!(!command.args.iter().any(|arg| arg == "-- dns-ipv6=0"));
         assert!(!command.args.iter().any(|arg| arg == "---dns-ipv6=0"));
     }
@@ -144,8 +141,7 @@ mod tests {
 
         assert!(command.args.windows(2).any(|window| {
             window[0] == "-w"
-                && window[1]
-                    == "btc:bc1qs3wn9rudzj3crl9yvck7ajfh0kavnffqsq037s.worker-a"
+                && window[1] == "btc:bc1qs3wn9rudzj3crl9yvck7ajfh0kavnffqsq037s.worker-a"
         }));
     }
 
@@ -157,9 +153,10 @@ mod tests {
         let command = super::build_gpu_command(&config);
 
         assert!(command.args.windows(2).any(|window| {
-            window[0] == "-w"
-                && window[1] == "rvn:REYeMLf1GoKn3D4w8haFQjZFW6St4itq8P.worker-a"
+            window[0] == "-w" && window[1] == "rvn:REYeMLf1GoKn3D4w8haFQjZFW6St4itq8P.worker-a"
         }));
-        assert!(command.executable.ends_with("bzminer.exe") || command.executable.ends_with("bzminer"));
+        assert!(
+            command.executable.ends_with("bzminer.exe") || command.executable.ends_with("bzminer")
+        );
     }
 }

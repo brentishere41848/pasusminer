@@ -14,6 +14,7 @@ use tools::configure_bundled_tools_dir;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             configure_bundled_tools_dir(&app.handle());
             Ok(())

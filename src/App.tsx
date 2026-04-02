@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { Icon } from "./components/Icon";
 import { LogPanel } from "./components/LogPanel";
 import { SetupScreen } from "./components/SetupScreen";
@@ -30,6 +31,7 @@ import type {
 } from "./lib/types";
 
 type DashboardTab = "overview" | "control" | "logs";
+type UpdatePhase = "idle" | "checking" | "available" | "downloading" | "installing" | "installed" | "error";
 
 function App() {
   const [runtimeState, setRuntimeState] = useState<RuntimeState>(emptyRuntimeState);
@@ -47,7 +49,15 @@ function App() {
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>("idle");
+  const [updateVersion, setUpdateVersion] = useState<string>("");
+  const [updateNotes, setUpdateNotes] = useState<string>("");
+  const [updateProgress, setUpdateProgress] = useState<number>(0);
+  const [updateTotalBytes, setUpdateTotalBytes] = useState<number>(0);
+  const [updateDownloadedBytes, setUpdateDownloadedBytes] = useState<number>(0);
+  const [updateMessage, setUpdateMessage] = useState<string>("");
   const initialized = useRef(false);
+  const pendingUpdateRef = useRef<Update | null>(null);
 
   const toolsReady = runtimeState.setup.gpu.exists;
   const selectedCoin = sanitizeCoin(config.payoutTicker);
@@ -65,6 +75,14 @@ function App() {
   const activeGpuBackend = "BzMiner";
   const gpuMaxHistory = Math.max(...gpuHistory, 1);
   const cpuMaxHistory = Math.max(...cpuHistory, 1);
+  const updateProgressLabel =
+    updateTotalBytes > 0
+      ? `${Math.round(updateProgress)}% · ${Math.round(updateDownloadedBytes / 1024 / 1024)} / ${Math.round(updateTotalBytes / 1024 / 1024)} MB`
+      : updatePhase === "downloading"
+        ? "Downloading update..."
+        : updatePhase === "installing"
+          ? "Installing update..."
+          : updateMessage;
 
   const telemetryCards = [
     {
@@ -180,6 +198,46 @@ function App() {
     return () => {
       mounted = false;
       unlisteners.forEach((unlisten) => void unlisten());
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkForUpdates() {
+      setUpdatePhase("checking");
+
+      try {
+        const update = await check();
+        if (cancelled) {
+          await update?.close().catch(() => undefined);
+          return;
+        }
+
+        pendingUpdateRef.current = update;
+        if (update) {
+          setUpdateVersion(update.version);
+          setUpdateNotes(update.body ?? "");
+          setUpdateMessage(`Update ${update.version} is ready.`);
+          setUpdatePhase("available");
+        } else {
+          setUpdateMessage("Pasus Miner is current.");
+          setUpdatePhase("idle");
+        }
+      } catch {
+        setUpdatePhase("idle");
+      }
+    }
+
+    void checkForUpdates();
+
+    return () => {
+      cancelled = true;
+      const update = pendingUpdateRef.current;
+      pendingUpdateRef.current = null;
+      if (update) {
+        void update.close().catch(() => undefined);
+      }
     };
   }, []);
 
@@ -330,6 +388,57 @@ function App() {
     }
   }
 
+  async function handleInstallUpdate() {
+    const update = pendingUpdateRef.current;
+    if (!update) {
+      setUpdateMessage("No update package is available right now.");
+      setUpdatePhase("error");
+      return;
+    }
+
+    setUpdatePhase("downloading");
+    setUpdateDownloadedBytes(0);
+    setUpdateTotalBytes(0);
+    setUpdateProgress(0);
+    setUpdateMessage(`Downloading ${update.version}...`);
+
+    try {
+      let contentLength = 0;
+      let downloaded = 0;
+
+      await update.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            contentLength = event.data.contentLength ?? 0;
+            downloaded = 0;
+            setUpdateTotalBytes(contentLength);
+            setUpdateDownloadedBytes(0);
+            setUpdateProgress(0);
+            break;
+          case "Progress":
+            downloaded += event.data.chunkLength;
+            setUpdateDownloadedBytes(downloaded);
+            if (contentLength > 0) {
+              setUpdateProgress((downloaded / contentLength) * 100);
+            }
+            break;
+          case "Finished":
+            setUpdatePhase("installing");
+            setUpdateProgress(100);
+            setUpdateMessage("Download finished. Starting installer...");
+            break;
+        }
+      });
+
+      setUpdatePhase("installed");
+      setUpdateMessage("Update installed. Windows will close the app to complete the upgrade.");
+      pendingUpdateRef.current = null;
+    } catch (error) {
+      setUpdatePhase("error");
+      setUpdateMessage(error instanceof Error ? error.message : "Failed to install the update.");
+    }
+  }
+
   if (!toolsReady) {
     return <SetupScreen setup={runtimeState.setup} />;
   }
@@ -361,6 +470,48 @@ function App() {
           </button>
         </div>
       </section>
+
+      {updatePhase !== "idle" ? (
+        <section className={`update-banner panel ${updatePhase}`}>
+          <div className="update-banner-copy">
+            <p className="section-kicker">Updater</p>
+            <h2>
+              {updatePhase === "available"
+                ? `Pasus Miner ${updateVersion} is available`
+                : updatePhase === "downloading"
+                  ? "Downloading update"
+                  : updatePhase === "installing"
+                    ? "Installing update"
+                    : updatePhase === "installed"
+                      ? "Update installed"
+                      : updatePhase === "error"
+                        ? "Update failed"
+                        : "Checking for updates"}
+            </h2>
+            <p className="hero-copy">
+              {updatePhase === "available" && updateNotes.trim()
+                ? updateNotes
+                : updateProgressLabel || updateMessage}
+            </p>
+            {updatePhase === "downloading" || updatePhase === "installing" ? (
+              <div className="update-progress-track" aria-hidden="true">
+                <span className="update-progress-fill" style={{ width: `${Math.max(updateProgress, 8)}%` }} />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="update-banner-actions">
+            {updatePhase === "available" ? (
+              <button className="primary-button" onClick={() => void handleInstallUpdate()}>
+                Install Update
+              </button>
+            ) : null}
+            <span className="section-chip subtle">
+              {updatePhase === "available" ? "Auto-check enabled on launch" : updateProgressLabel}
+            </span>
+          </div>
+        </section>
+      ) : null}
 
       <section className="hero-panel panel">
         <div className="hero-copy-block">

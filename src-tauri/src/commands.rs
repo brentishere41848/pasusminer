@@ -42,7 +42,9 @@ pub fn start_gpu_miner(
     manager: State<MinerManager>,
 ) -> Result<StartMinerResponse, String> {
     save_config(&app, &config).map_err(|error| error.to_string())?;
-    manager.start_gpu(app, config).map_err(|error| error.to_string())
+    manager
+        .start_gpu(app, config)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -62,7 +64,9 @@ pub fn start_cpu_miner(
     manager: State<MinerManager>,
 ) -> Result<StartMinerResponse, String> {
     save_config(&app, &config).map_err(|error| error.to_string())?;
-    manager.start_cpu(app, config).map_err(|error| error.to_string())
+    manager
+        .start_cpu(app, config)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

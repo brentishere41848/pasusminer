@@ -186,7 +186,12 @@ pub fn apply_coin_preset(mut config: AppConfig) -> AppConfig {
 }
 
 pub fn normalize_cpu_user(config: &AppConfig) -> String {
-    if config.cpu_pool.host.trim().eq_ignore_ascii_case("rx.unmineable.com") {
+    if config
+        .cpu_pool
+        .host
+        .trim()
+        .eq_ignore_ascii_case("rx.unmineable.com")
+    {
         return build_payout_user(config);
     }
 
